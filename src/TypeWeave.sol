@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "@openzeppelin/contracts-upgradeable/contracts/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/contracts/token/ERC721/IERC721Upgradeable.sol";
 
 interface IMoveableType {
     struct Token {
@@ -36,7 +36,7 @@ interface IMoveableType {
     ) external view returns (string memory);
 }
 
-contract TypeWeave is Ownable {
+contract TypeWeave is OwnableUpgradeable {
     IMoveableType public immutable moveableType;
     
     struct Pattern {
@@ -72,7 +72,16 @@ contract TypeWeave is Ownable {
         uint256 timestamp
     );
 
-    constructor(address _moveableType) Ownable(msg.sender) {
+    event ScoreUpdated(address indexed weaver, uint256 newScore);
+    event PatternInvalidated(uint256 indexed patternId);
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(address _moveableType) public initializer {
+        __Ownable_init(msg.sender);
         moveableType = IMoveableType(_moveableType);
     }
 
@@ -253,10 +262,73 @@ contract TypeWeave is Ownable {
     }
 
     function getTopWeavers(uint256 limit) external view returns (address[] memory, uint256[] memory) {
-        // Basic implementation - can be optimized
-        address[] memory weavers = new address[](limit);
-        uint256[] memory scores = new uint256[](limit);
+        // Create temporary arrays to store all weavers and scores
+        address[] memory allWeavers = new address[](weaverScores.length);
+        uint256[] memory allScores = new uint256[](weaverScores.length);
+        uint256 count = 0;
         
-        return (weavers, scores);
+        // Get all weavers and scores
+        for (uint256 i = 0; i < allWeavers.length; i++) {
+            if (weaverScores[allWeavers[i]] > 0) {
+                allWeavers[count] = allWeavers[i];
+                allScores[count] = weaverScores[allWeavers[i]];
+                count++;
+            }
+        }
+        
+        // Sort arrays by score (simple bubble sort)
+        for (uint256 i = 0; i < count - 1; i++) {
+            for (uint256 j = 0; j < count - i - 1; j++) {
+                if (allScores[j] < allScores[j + 1]) {
+                    // Swap scores
+                    uint256 tempScore = allScores[j];
+                    allScores[j] = allScores[j + 1];
+                    allScores[j + 1] = tempScore;
+                    
+                    // Swap addresses
+                    address tempAddr = allWeavers[j];
+                    allWeavers[j] = allWeavers[j + 1];
+                    allWeavers[j + 1] = tempAddr;
+                }
+            }
+        }
+        
+        // Return only up to limit entries
+        uint256 resultSize = limit < count ? limit : count;
+        address[] memory topWeavers = new address[](resultSize);
+        uint256[] memory topScores = new uint256[](resultSize);
+        
+        for (uint256 i = 0; i < resultSize; i++) {
+            topWeavers[i] = allWeavers[i];
+            topScores[i] = allScores[i];
+        }
+        
+        return (topWeavers, topScores);
+    }
+
+    // View function to get achievement details
+    function getWeaverAchievements(address weaver) external view returns (uint256[] memory) {
+        return weaverAchievements[weaver];
+    }
+
+    // View function to get pattern details
+    function getPattern(uint256 patternId) external view returns (Pattern memory) {
+        return patterns[patternId];
+    }
+
+    // View function to get weaver score
+    function getWeaverScore(address weaver) external view returns (uint256) {
+        return weaverScores[weaver];
+    }
+
+    function invalidatePattern(uint256 patternId) external onlyOwner {
+        require(patterns[patternId].valid, "Pattern already invalid");
+        patterns[patternId].valid = false;
+        emit PatternInvalidated(patternId);
+    }
+
+    function updateWeaverScore(address weaver, uint256 newScore) external onlyOwner {
+        weaverScores[weaver] = newScore;
+        emit ScoreUpdated(weaver, newScore);
     }
 }
